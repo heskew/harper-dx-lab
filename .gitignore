@@ -1,0 +1,27 @@
+# Beads local database (rebuilt from JSONL)
+.beads/beads.db
+.beads/beads.db-*
+.beads/bd.sock
+.beads/bd.pipe
+.beads/.exclusive-lock
+
+# Docker volumes and env (ephemeral worker data)
+docker/volumes/
+docker/.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node (from worker containers)
+node_modules/
+
+# Review drafts (human review packages are committed, drafts are not)
+reviews/draft-*

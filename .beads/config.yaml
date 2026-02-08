@@ -1,0 +1,217 @@
+# DX Lab Beads Configuration
+# Custom types for experiment tracking, observations, and issue management
+
+project: harper-dx-lab
+description: "Harper Developer Experience Lab — Gas Town rig"
+
+# Custom bead types
+# These extend the standard Beads issue type with lab-specific fields.
+# Agents create them with: bd create "title" --type <type> --field key=value
+
+custom_types:
+  experiment:
+    description: "One worker's complete run of a tier assignment"
+    fields:
+      - name: tier
+        type: integer
+        description: "Tier number (1-6)"
+      - name: harper-version
+        type: string
+        description: "Exact Harper version tested (e.g., 5.0.0-alpha.3)"
+      - name: docs-snapshot
+        type: string
+        description: "Date or commit of docs used"
+      - name: expert-iteration
+        type: integer
+        description: "Expert knowledge iteration used"
+      - name: worker-id
+        type: integer
+        description: "Worker number within cohort"
+      - name: status
+        type: string
+        description: "queued | running | completed | failed | blocked | timeout"
+      - name: passed
+        type: boolean
+        description: "Did the SWE pass the assignment?"
+      - name: completion-attempts
+        type: integer
+        description: "How many times SWE declared done"
+      - name: duration-minutes
+        type: number
+        description: "Total experiment duration"
+      - name: blocked-by
+        type: string
+        description: "Issue bead ID if blocked by platform bug"
+      - name: intervention-count
+        type: integer
+        description: "Number of expert interventions"
+      - name: self-correction-count
+        type: integer
+        description: "Number of self-corrected wrong turns"
+
+  observation:
+    description: "A notable event during an experiment run"
+    fields:
+      - name: event-type
+        type: string
+        description: "wrong_turn | self_correction | doc_fetch | stuck | hallucination | error | security_finding"
+      - name: classification
+        type: string
+        description: "doc_gap | bug | dx_bug | api_design | feature_gap | security"
+      - name: classification-confidence
+        type: string
+        description: "high | medium | low"
+      - name: severity
+        type: string
+        description: "critical | high | medium | low"
+      - name: self-corrected
+        type: boolean
+        description: "Did the SWE self-correct without help?"
+      - name: correction-time-minutes
+        type: number
+        description: "Time to self-correct (if applicable)"
+      - name: doc-url
+        type: string
+        description: "Doc page involved"
+      - name: what-swe-tried
+        type: string
+        description: "Code or command the SWE attempted"
+      - name: what-happened
+        type: string
+        description: "Result (error, unexpected behavior, etc.)"
+      - name: expert-action
+        type: string
+        description: "SILENT | STUCK_HINT | COMPLETION_REVIEW"
+      - name: reproduction
+        type: string
+        description: "Steps to reproduce (for bugs)"
+
+  issue:
+    description: "A durable finding that persists across experiments"
+    fields:
+      - name: classification
+        type: string
+        description: "doc_gap | bug | dx_bug | api_design | feature_gap | security"
+      - name: severity
+        type: string
+        description: "critical | high | medium | low"
+      - name: priority
+        type: string
+        description: "P0 | P1 | P2 | P3 | P4 | P5"
+      - name: first-seen-version
+        type: string
+        description: "Harper version where first observed"
+      - name: fixed-in-version
+        type: string
+        description: "Harper version where fix landed"
+      - name: reproduction
+        type: string
+        description: "Reproduction steps"
+      - name: worker-frequency
+        type: string
+        description: "How many workers hit this (e.g., 5/5)"
+      - name: time-cost-minutes
+        type: number
+        description: "Avg time agents spent on this"
+      - name: feature-area
+        type: string
+        description: "schema | rest | relationships | mqtt | plugins | auth | etc."
+      - name: tier
+        type: integer
+        description: "Which tier this primarily affects"
+      - name: external-url
+        type: string
+        description: "GitHub issue URL if filed externally"
+      - name: owner
+        type: string
+        description: "Who is responsible for fixing"
+
+  doc-patch:
+    description: "A proposed documentation fix"
+    fields:
+      - name: target-doc
+        type: string
+        description: "URL or path of doc page to patch"
+      - name: target-section
+        type: string
+        description: "Specific section within the page"
+      - name: patch-content
+        type: string
+        description: "The proposed change"
+      - name: status
+        type: string
+        description: "draft | review | approved | applied | rejected"
+      - name: tier
+        type: integer
+        description: "Which tier surfaced this"
+      - name: reviewed-by
+        type: string
+        description: "Human reviewer"
+
+  tier-status:
+    description: "Aggregated tier health — one bead per tier"
+    fields:
+      - name: tier
+        type: integer
+        description: "Tier number (1-6)"
+      - name: phase
+        type: string
+        description: "cold_start | calibrating | reliable | autonomous"
+      - name: pass-rate
+        type: number
+        description: "Latest cohort pass rate (0.0-1.0)"
+      - name: avg-interventions
+        type: number
+        description: "Average expert hints per run"
+      - name: self-correction-rate
+        type: number
+        description: "Percentage of wrong turns self-corrected"
+      - name: total-runs
+        type: integer
+        description: "Total experiments ever run for this tier"
+      - name: graduated
+        type: boolean
+        description: "Has this tier graduated?"
+      - name: graduated-on-version
+        type: string
+        description: "Harper version when graduated"
+      - name: last-regression-version
+        type: string
+        description: "Last Harper version tested"
+      - name: last-regression-passed
+        type: boolean
+        description: "Did last regression check pass?"
+      - name: stability-score
+        type: string
+        description: "HIGH | MEDIUM | LOW"
+
+  plugin-test:
+    description: "Plugin quality assessment"
+    fields:
+      - name: plugin-name
+        type: string
+        description: "Plugin package name"
+      - name: plugin-version
+        type: string
+        description: "Plugin version tested"
+      - name: test-type
+        type: string
+        description: "consumer | author"
+      - name: install-score
+        type: number
+        description: "0.0-1.0 — could agents install it?"
+      - name: config-score
+        type: number
+        description: "0.0-1.0 — could agents configure it?"
+      - name: basic-usage-score
+        type: number
+        description: "0.0-1.0 — could agents use basic features?"
+      - name: advanced-usage-score
+        type: number
+        description: "0.0-1.0 — could agents use advanced features?"
+      - name: overall-rating
+        type: number
+        description: "0.0-5.0 computed from scores"
+      - name: recommendation
+        type: string
+        description: "recommended | usable | needs-work | broken"

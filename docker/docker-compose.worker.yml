@@ -1,0 +1,54 @@
+# Worker Docker Compose Template
+# Each worker gets an isolated Harper instance and workspace.
+# lab-runner.sh creates a concrete compose file from this template.
+#
+# Credentials: set HDB_ADMIN_USERNAME and HDB_ADMIN_PASSWORD in your
+# environment or in a .env file. See .env.example for defaults.
+
+services:
+  harper:
+    image: harperdb/harperdb:${HARPER_VERSION:-latest}
+    environment:
+      - HDB_ADMIN_USERNAME=${HDB_ADMIN_USERNAME:-admin}
+      - HDB_ADMIN_PASSWORD=${HDB_ADMIN_PASSWORD:?Set HDB_ADMIN_PASSWORD in .env or environment}
+    ports:
+      - "${HARPER_REST_PORT:-9926}:9926"
+      - "${HARPER_OPS_PORT:-9925}:9925"
+    volumes:
+      - harper-data-${WORKER_ID}:/home/harperdb/hdb
+    networks:
+      - worker-${WORKER_ID}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9926/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  workspace:
+    image: node:20-slim
+    working_dir: /app
+    volumes:
+      - workspace-${WORKER_ID}:/app
+      - ../assignments:/assignments:ro
+    networks:
+      - worker-${WORKER_ID}
+    environment:
+      - HARPER_URL=http://harper:9926
+      - HARPER_OPS_URL=http://harper:9925
+      - HARPER_ADMIN_USERNAME=${HDB_ADMIN_USERNAME:-admin}
+      - HARPER_ADMIN_PASSWORD=${HDB_ADMIN_PASSWORD:?Set HDB_ADMIN_PASSWORD in .env or environment}
+      - ASSIGNMENT_FILE=/assignments/${ASSIGNMENT_FILE:-tier-1-bookmark-manager.md}
+    depends_on:
+      harper:
+        condition: service_healthy
+    # Keep alive for agent to connect
+    command: ["tail", "-f", "/dev/null"]
+
+volumes:
+  harper-data-${WORKER_ID}:
+  workspace-${WORKER_ID}:
+
+networks:
+  worker-${WORKER_ID}:
+    driver: bridge

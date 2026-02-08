@@ -1,0 +1,84 @@
+description = "Run a full cohort: N workers in parallel on a tier"
+formula = "cohort"
+version = 1
+
+[vars.tier]
+description = "Tier number (1-6)"
+required = true
+
+[vars.workers]
+description = "Number of parallel workers"
+default = "3"
+
+[vars.harper_version]
+description = "Harper Docker image tag"
+required = true
+
+[vars.expert_iteration]
+description = "Expert knowledge iteration"
+default = "0"
+
+[[steps]]
+id = "create-convoy"
+title = "Create convoy tracking this cohort"
+description = """
+gt convoy create "Tier {{tier}} — {{harper_version}} — iter {{expert_iteration}}" --notify
+
+This creates a convoy that tracks all worker experiments as a unit.
+"""
+
+[[steps]]
+id = "spawn-workers"
+title = "Spawn {{workers}} parallel workers"
+description = """
+For each worker (1 to {{workers}}):
+  1. Create experiment bead:
+     bd create "Tier {{tier}}: Worker N" --type experiment --field tier={{tier}} --field harper-version={{harper_version}} --field expert-iteration={{expert_iteration}} --field worker-id=N --field status=queued
+
+  2. Add to convoy:
+     gt convoy add <convoy-id> <experiment-bead-id>
+
+  3. Spin up Docker + sling:
+     ./docker/lab-runner.sh --tier {{tier}} --harper-version {{harper_version}} --worker-id N --expert-iteration {{expert_iteration}}
+     gt sling <experiment-bead-id> dx-lab
+"""
+needs = ["create-convoy"]
+
+[[steps]]
+id = "await-completion"
+title = "Wait for all workers to complete"
+description = """
+Monitor: gt convoy status <convoy-id>
+Alert if any worker is stuck > 30 minutes without progress.
+Workers may finish at different times. Wait for all.
+"""
+needs = ["spawn-workers"]
+
+[[steps]]
+id = "aggregate"
+title = "Aggregate cohort results"
+description = """
+Compute across all worker experiments:
+- Pass rate (workers passed / total workers)
+- Average interventions per worker
+- Self-correction rate
+- Issue classification breakdown
+- New issues found vs existing issues re-confirmed
+
+Update tier-status bead with latest metrics.
+"""
+needs = ["await-completion"]
+
+[[steps]]
+id = "generate-review"
+title = "Generate review package"
+description = """
+Create reviews/cohort-<date>.md with:
+- Summary metrics
+- Findings grouped by category (bugs, doc gaps, API friction, etc.)
+- Draft doc patches
+- Blocked experiments (with issue references)
+- Expert performance assessment
+- Recommendation: ready for human review
+"""
+needs = ["aggregate"]

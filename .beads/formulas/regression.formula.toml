@@ -1,0 +1,61 @@
+description = "Run all graduated tiers against a new Harper version to detect regressions"
+formula = "regression"
+version = 1
+
+[vars.harper_version]
+description = "New Harper version to test"
+required = true
+
+[[steps]]
+id = "identify-graduated"
+title = "Find all graduated tiers"
+description = """
+bd list --type tier-status --field graduated=true --json
+
+Only run regression on tiers that have previously graduated.
+If no tiers are graduated yet, skip with message.
+"""
+
+[[steps]]
+id = "run-regression-cohorts"
+title = "Run 2-worker cohort per graduated tier"
+description = """
+For each graduated tier:
+  bd cook cohort --var tier=<N> --var workers=2 --var harper_version={{harper_version}}
+
+Use 2 workers per tier (enough to detect regression without burning resources).
+"""
+needs = ["identify-graduated"]
+
+[[steps]]
+id = "compare-results"
+title = "Compare to last known-good results"
+description = """
+For each tier:
+- Get previous pass rate from tier-status bead
+- Get current cohort pass rate
+- If current < previous: REGRESSION DETECTED
+- If current >= previous: PASSED
+
+Also check:
+- New bugs found that didn't exist in previous version
+- Old bugs that are now fixed
+- API changes detected (agent behavior differs)
+"""
+needs = ["run-regression-cohorts"]
+
+[[steps]]
+id = "generate-report"
+title = "Generate regression report"
+description = """
+Create reviews/regression-<version>-<date>.md:
+- Per-tier: pass/fail, comparison to previous
+- New regressions with details
+- Bugs fixed since last version
+- API changes detected
+- Recommendation: ship / investigate / hold
+
+Update tier-status beads with regression results.
+Update or create harper-version tracking (if using that).
+"""
+needs = ["compare-results"]

@@ -1,0 +1,60 @@
+description = "Run a single Tier 1 experiment with one worker"
+formula = "tier-1-run"
+version = 1
+
+[vars.harper_version]
+description = "Harper Docker image tag (e.g., 5.0.0-alpha.3)"
+required = true
+
+[vars.expert_iteration]
+description = "Expert knowledge iteration to use"
+default = "0"
+
+[[steps]]
+id = "setup-docker"
+title = "Spin up isolated Docker environment"
+description = """
+Run: ./docker/lab-runner.sh --tier 1 --harper-version {{harper_version}} --worker-id 1 --expert-iteration {{expert_iteration}}
+
+This creates:
+- Isolated Harper instance (harperdb/harperdb:{{harper_version}})
+- Workspace container with assignment
+- Isolated Docker network
+"""
+
+[[steps]]
+id = "run-experiment"
+title = "Fresh SWE attempts Tier 1 assignment"
+description = """
+SWE receives ONLY:
+- Assignment: assignments/tier-1-bookmark-manager.md
+- Harper docs: https://docs.harperdb.io
+- Running Harper instance on the isolated network
+
+Expert observes silently per AGENTS.md protocol.
+Expert intervenes only on stuck (>5min) or completion review.
+"""
+needs = ["setup-docker"]
+
+[[steps]]
+id = "collect-observations"
+title = "Collect and classify observations"
+description = """
+Expert writes observation beads from local YAML:
+- Wrong turns with self-correction data
+- Stuck points with hint levels given
+- Completion review results
+- Classification for each (doc_gap, bug, api_design, etc.)
+
+Ingest: parse worker output YAML, create observation beads as children of the experiment bead.
+"""
+needs = ["run-experiment"]
+
+[[steps]]
+id = "teardown"
+title = "Tear down Docker environment"
+description = """
+docker compose -f docker/docker-compose.worker.yml down
+Worker is ephemeral — nothing persists except the beads.
+"""
+needs = ["collect-observations"]
