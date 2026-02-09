@@ -55,8 +55,8 @@ done
 [[ -z "$WORKER_ID" ]] && echo "Error: --worker-id required" && usage
 
 # Compute ports (each worker gets unique ports)
-REST_PORT=$((BASE_REST_PORT + WORKER_ID))
-OPS_PORT=$((BASE_OPS_PORT + WORKER_ID))
+REST_PORT=$((BASE_REST_PORT + WORKER_ID * 2))
+OPS_PORT=$((BASE_OPS_PORT + WORKER_ID * 2))
 
 # Determine assignment file
 ASSIGNMENT_FILE="tier-${TIER}-bookmark-manager.md"
@@ -111,8 +111,7 @@ docker compose \
 echo "Waiting for Harper to be ready..."
 RETRIES=30
 while [[ $RETRIES -gt 0 ]]; do
-    if wget -q -O /dev/null "http://localhost:${OPS_PORT}/" 2>/dev/null || \
-       curl -sf "http://localhost:${OPS_PORT}/" > /dev/null 2>&1; then
+    if curl -so /dev/null "http://localhost:${OPS_PORT}/" 2>/dev/null; then
         echo "Harper is ready!"
         break
     fi

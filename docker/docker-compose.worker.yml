@@ -21,7 +21,7 @@ services:
     networks:
       - worker-net
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9925/"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:9925/').then(()=>process.exit(0)).catch(()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
       retries: 12
