@@ -96,7 +96,7 @@ docker compose \
 echo "Waiting for Harper to be ready..."
 RETRIES=30
 while [[ $RETRIES -gt 0 ]]; do
-    if curl -sf "http://localhost:${REST_PORT}/" > /dev/null 2>&1; then
+    if curl -sk "https://localhost:${REST_PORT}/" > /dev/null 2>&1; then
         echo "Harper is ready!"
         break
     fi
