@@ -34,6 +34,7 @@ search their bookmarks.
 - Harper documentation: https://docs.harperdb.io
 - Your Harper instance is running at: `http://localhost:9926`
 - Operations API (for admin): `http://localhost:9925`
+- Auth credentials: `admin` / `password`
 
 ## What to Deliver
 
