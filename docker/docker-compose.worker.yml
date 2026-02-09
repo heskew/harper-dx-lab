@@ -7,15 +7,17 @@
 
 services:
   harper:
-    image: harperdb/harperdb:${HARPER_VERSION:-latest}
+    image: ${HARPER_IMAGE:-harperdb:v5-local}
     environment:
       - HDB_ADMIN_USERNAME=${HDB_ADMIN_USERNAME:-admin}
       - HDB_ADMIN_PASSWORD=${HDB_ADMIN_PASSWORD:?Set HDB_ADMIN_PASSWORD in .env or environment}
+      - DEFAULTS_MODE=dev
     ports:
       - "${HARPER_REST_PORT:-9926}:9926"
       - "${HARPER_OPS_PORT:-9925}:9925"
     volumes:
       - harper-data:/home/harperdb/hdb
+      - ${COMPONENT_DIR:-./components}:/app/components
     networks:
       - worker-net
     healthcheck:
@@ -26,7 +28,7 @@ services:
       start_period: 30s
 
   workspace:
-    image: node:20-slim
+    image: node:22-slim
     working_dir: /app
     volumes:
       - workspace:/app

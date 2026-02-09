@@ -31,3 +31,4 @@ reviews/draft-*
 .claude/
 .beads/
 .logs/
+.workers/
