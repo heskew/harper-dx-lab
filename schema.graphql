@@ -1,0 +1,8 @@
+type Bookmark @table @export {
+  id: ID @primaryKey
+  url: String
+  title: String @indexed
+  description: String
+  tags: [String] @indexed
+  createdAt: Long @createdTime
+}
