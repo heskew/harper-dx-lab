@@ -25,3 +25,9 @@ node_modules/
 
 # Review drafts (human review packages are committed, drafts are not)
 reviews/draft-*
+
+# Gas Town (added by gt)
+.runtime/
+.claude/
+.beads/
+.logs/
