@@ -1,0 +1,77 @@
+type Venue @table @export {
+  id: ID @primaryKey
+  name: String @indexed
+  address: String
+  city: String @indexed
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+  sections: [Section] @relationship(to: venueId)
+  events: [Event] @relationship(to: venueId)
+}
+
+type Section @table @export {
+  id: ID @primaryKey
+  venueId: ID @indexed
+  name: String @indexed
+  totalRows: Int
+  seatsPerRow: Int
+  price: Float
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+  venue: Venue @relationship(from: venueId)
+  seats: [Seat] @relationship(to: sectionId)
+}
+
+type Event @table @export {
+  id: ID @primaryKey
+  name: String @indexed
+  description: String
+  category: String @indexed
+  venueId: ID @indexed
+  date: Float @indexed
+  status: String @indexed
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+  venue: Venue @relationship(from: venueId)
+  seats: [Seat] @relationship(to: eventId)
+  waitlist: [WaitlistEntry] @relationship(to: eventId)
+}
+
+type Seat @table @export {
+  id: ID @primaryKey
+  sectionId: ID @indexed
+  eventId: ID @indexed
+  row: String @indexed
+  number: Int
+  status: String @indexed
+  holdExpiry: Float @indexed
+  holdUserId: String @indexed
+  purchaseId: ID @indexed
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+  section: Section @relationship(from: sectionId)
+  event: Event @relationship(from: eventId)
+}
+
+type Purchase @table @export {
+  id: ID @primaryKey
+  eventId: ID @indexed
+  userId: String @indexed
+  seatIds: [String]
+  totalPrice: Float
+  createdAt: Float @createdTime
+  event: Event @relationship(from: eventId)
+}
+
+type WaitlistEntry @table @export {
+  id: ID @primaryKey
+  eventId: ID @indexed
+  userId: String @indexed
+  notified: Boolean
+  createdAt: Float @createdTime
+  event: Event @relationship(from: eventId)
+}
+
+type WaitlistAlert @table @export(name: "waitlist-alerts") {
+  id: ID @primaryKey
+}
