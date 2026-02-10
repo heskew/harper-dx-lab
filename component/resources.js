@@ -1,90 +1,146 @@
-const SEVERITIES = ['info', 'warning', 'critical'];
+// Card view fields (minimal payload for mobile/listing)
+const CARD_FIELDS = ['id', 'name', 'price', 'imageUrl', 'featured', 'categoryId'];
 
-export class Channel extends tables.Channel {
+// All product fields for converting proxy objects to plain objects
+const ALL_FIELDS = ['id', 'name', 'description', 'price', 'sku', 'imageUrl', 'featured', 'categoryId', 'tags', 'createdAt', 'updatedAt'];
+
+function pickFields(record, fields) {
+	if (!record) return record;
+	const result = {};
+	for (const f of fields) {
+		if (record[f] !== undefined) result[f] = record[f];
+	}
+	return result;
+}
+
+function toPlain(record) {
+	return pickFields(record, ALL_FIELDS);
+}
+
+export class Product extends tables.Product {
+	static loadAsInstance = false;
+
+	async get(target) {
+		const record = await super.get(target);
+
+		// For single record lookups, check for ?view=card
+		if (record && !record[Symbol.asyncIterator]) {
+			const context = this.getContext();
+			const url = context?.url || '';
+			if (url.includes('view=card')) {
+				return pickFields(record, CARD_FIELDS);
+			}
+		}
+
+		return record;
+	}
+}
+
+// Card view of products — GET /ProductCard/ for listing, GET /ProductCard/<id> for single
+export class ProductCard extends Resource {
+	static loadAsInstance = false;
+
+	async get(target) {
+		if (target && target.id) {
+			const product = await tables.Product.get(target.id);
+			if (!product) {
+				const error = new Error(`Product ${target.id} not found`);
+				error.statusCode = 404;
+				throw error;
+			}
+			return pickFields(product, CARD_FIELDS);
+		}
+
+		// Collection: return all products as card view
+		const allProducts = tables.Product.search();
+		const results = [];
+		for await (const p of allProducts) {
+			results.push(pickFields(p, CARD_FIELDS));
+		}
+		return results;
+	}
+}
+
+// Track product views (fire-and-forget style — does not slow down reads)
+export class ProductView extends tables.ProductView {
 	static loadAsInstance = false;
 
 	async post(target, data) {
-		if (!data.name || (typeof data.name === 'string' && data.name.trim() === '')) {
-			const error = new Error('name is required');
+		if (!data.productId) {
+			const error = new Error('productId is required');
 			error.statusCode = 400;
+			throw error;
+		}
+		const product = await tables.Product.get(data.productId);
+		if (!product) {
+			const error = new Error(`Product ${data.productId} not found`);
+			error.statusCode = 404;
 			throw error;
 		}
 		return super.post(target, data);
 	}
 }
 
-export class Notification extends tables.Notification {
+// Trending products endpoint — returns products sorted by view count
+export class Trending extends Resource {
 	static loadAsInstance = false;
 
-	async post(target, data) {
-		if (!data.title || (typeof data.title === 'string' && data.title.trim() === '')) {
-			const error = new Error('title is required');
-			error.statusCode = 400;
-			throw error;
+	async get() {
+		const viewCounts = {};
+		const allViews = tables.ProductView.search();
+		for await (const view of allViews) {
+			viewCounts[view.productId] = (viewCounts[view.productId] || 0) + 1;
 		}
-		if (!data.body || (typeof data.body === 'string' && data.body.trim() === '')) {
-			const error = new Error('body is required');
-			error.statusCode = 400;
-			throw error;
+
+		// Sort by count descending, take top 10
+		const sorted = Object.entries(viewCounts)
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, 10);
+
+		const trending = [];
+		for (const [productId, count] of sorted) {
+			const product = await tables.Product.get(productId);
+			if (product) {
+				const plain = toPlain(product);
+				plain.viewCount = count;
+				trending.push(plain);
+			}
 		}
-		if (!SEVERITIES.includes(data.severity)) {
-			const error = new Error(`severity must be one of: ${SEVERITIES.join(', ')}`);
-			error.statusCode = 400;
-			throw error;
-		}
-		if (!data.channelId) {
-			const error = new Error('channelId is required');
+
+		return trending;
+	}
+}
+
+// Related products endpoint — returns products in the same category
+// Usage: GET /RelatedProducts/<productId>
+export class RelatedProducts extends Resource {
+	static loadAsInstance = false;
+
+	async get(target) {
+		if (!target || !target.id) {
+			const error = new Error('Product ID is required: GET /RelatedProducts/<productId>');
 			error.statusCode = 400;
 			throw error;
 		}
 
-		const channel = await tables.Channel.get(data.channelId);
-		if (!channel) {
-			const error = new Error(`Channel ${data.channelId} not found`);
+		const product = await tables.Product.get(target.id);
+		if (!product) {
+			const error = new Error(`Product ${target.id} not found`);
 			error.statusCode = 404;
 			throw error;
 		}
 
-		if (data.read === undefined) {
-			data.read = false;
-		}
+		const targetCategoryId = product.categoryId;
 
-		const result = await super.post(target, data);
-
-		// Publish to subscribers of this resource
-		this.publish(target, data);
-
-		// If critical, publish to alerts/{channelName} MQTT topic via the Alert table
-		if (data.severity === 'critical') {
-			try {
-				tables.Alert.publish(channel.name, {
-					title: data.title,
-					body: data.body,
-					severity: data.severity,
-					channelId: data.channelId,
-					channelName: channel.name,
-					createdAt: Date.now(),
-				}, this);
-			} catch (e) {
-				console.error('MQTT alert publish error:', e);
+		// Iterate all products and filter by matching category
+		const allProducts = tables.Product.search();
+		const related = [];
+		for await (const p of allProducts) {
+			if (p.id !== target.id && p.categoryId === targetCategoryId) {
+				related.push(toPlain(p));
 			}
 		}
 
-		return result;
-	}
-
-	async patch(target, data) {
-		return super.patch(target, data);
-	}
-
-	async subscribe(subscriptionRequest) {
-		return super.subscribe(subscriptionRequest);
-	}
-
-	async *connect(incomingMessages) {
-		const subscription = await tables.Notification.subscribe();
-		for await (const message of subscription) {
-			yield message;
-		}
+		return related;
 	}
 }

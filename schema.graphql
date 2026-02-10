@@ -1,20 +1,30 @@
-type Project @table {
+type Category @table @export {
   id: ID @primaryKey
-  name: String
+  name: String @indexed
   description: String
-  status: String
-  tasks: [Task] @relationship(to: projectId)
-  createdAt: Long @createdTime
+  slug: String @indexed
+  products: [Product] @relationship(to: categoryId)
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
 }
 
-type Task @table {
+type Product @table @export {
   id: ID @primaryKey
-  title: String
+  name: String @indexed
   description: String
-  status: String
-  priority: String
-  projectId: ID @indexed
-  project: Project @relationship(from: projectId)
-  createdAt: Long @createdTime
-  updatedAt: Long @updatedTime
+  price: Float
+  sku: String @indexed
+  imageUrl: String
+  featured: Boolean @indexed
+  categoryId: ID @indexed
+  category: Category @relationship(from: categoryId)
+  tags: [String] @indexed
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type ProductView @table @export {
+  id: ID @primaryKey
+  productId: ID @indexed
+  viewedAt: Float @createdTime
 }
