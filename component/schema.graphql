@@ -1,30 +1,29 @@
-type Category @table @export {
+type Category @table {
   id: ID @primaryKey
   name: String @indexed
-  slug: String @indexed
   description: String
   products: [Product] @relationship(to: categoryId)
-  createdAt: Float @createdTime
-  updatedAt: Float @updatedTime
+  createdAt: Long @createdTime
+  updatedAt: Long @updatedTime
 }
 
-type Product @table @export {
+type Product @table {
   id: ID @primaryKey
   name: String @indexed
   description: String
   price: Float
+  sku: String
   imageUrl: String
   featured: Boolean @indexed
   categoryId: ID @indexed
   category: Category @relationship(from: categoryId)
-  tags: [String]
-  createdAt: Float @createdTime
-  updatedAt: Float @updatedTime
+  viewCount: Int @indexed
+  createdAt: Long @createdTime
+  updatedAt: Long @updatedTime
 }
 
-type ProductView @table @export {
+type ProductView @table {
   id: ID @primaryKey
   productId: ID @indexed
-  viewCount: Int @indexed
-  lastViewedAt: Float
+  createdAt: Long @createdTime
 }
