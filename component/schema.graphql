@@ -1,22 +1,30 @@
-type Channel @table @export {
+type Category @table @export {
+  id: ID @primaryKey
+  name: String @indexed
+  slug: String @indexed
+  description: String
+  products: [Product] @relationship(to: categoryId)
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type Product @table @export {
   id: ID @primaryKey
   name: String @indexed
   description: String
+  price: Float
+  imageUrl: String
+  featured: Boolean @indexed
+  categoryId: ID @indexed
+  category: Category @relationship(from: categoryId)
+  tags: [String]
   createdAt: Float @createdTime
-  notifications: [Notification] @relationship(to: channelId)
+  updatedAt: Float @updatedTime
 }
 
-type Notification @table @export {
+type ProductView @table {
   id: ID @primaryKey
-  title: String
-  body: String
-  severity: String @indexed
-  channelId: ID @indexed
-  channel: Channel @relationship(from: channelId)
-  read: Boolean
-  createdAt: Float @createdTime
-}
-
-type Alert @table @export(name: "alerts") {
-  id: ID @primaryKey
+  productId: ID @indexed
+  viewCount: Int @indexed
+  lastViewedAt: Float
 }
