@@ -1,137 +1,133 @@
 # Harper DX Lab
 
-A [Gas Town](https://github.com/steveyegge/gastown) rig that stress-tests
-Harper's developer experience. Fresh AI agents attempt Harper tasks using
-only the docs. Where they fail, we learn why — broken docs, real bugs,
-confusing APIs, missing features — and fix it.
+Automated developer experience testing for [Harper](https://github.com/harperfast/harper) using AI agents.
 
-> **Status: Early.** Tier 1 assignment and Docker infrastructure are in place.
-> Tiers 2-6 exist as design documents. Expert knowledge is bootstrapped
-> (iteration 0) and will evolve through experiment runs.
+## What This Is
+
+The DX Lab runs AI coding agents (Claude Code via [Gas Town](https://github.com/steveyegge/gastown)) against Harper's documentation and APIs to measure developer experience. Each agent receives an assignment of increasing complexity and must build a working application using only Harper — no human assistance, no hand-holding.
+
+When an agent fails, the failure is diagnosed and classified. When agents succeed but diverge in approach, the divergence reveals documentation gaps and API design friction. The result is a prioritized list of DX improvements backed by reproducible evidence.
 
 ## How It Works
 
 ```
-You → Mayor: "Run Tier 1 against Harper alpha.5"
-
-Mayor:
-  1. Creates experiment beads
-  2. Wraps them in a convoy (cohort)
-  3. Spins up Docker stacks (isolated Harper per worker)
-  4. Slings assignments to polecats
-  5. Expert observes silently, intervenes only when stuck
-  6. Collects observations as beads
-  7. Generates review package
-  8. Notifies: "Cohort complete, awaiting review"
+Assignment → AI Agent → Harper Instance → Review
+                ↓                            ↓
+          Finds docs              Pass/Fail + Divergence
+          Makes decisions         Analysis + Findings
+          Writes code
+          Tests it
 ```
 
-Each worker runs two agents: a **Fresh SWE** (zero Harper knowledge, only
-docs) and an **Expert** (silent observer, intervenes on stuck/completion).
-Workers are isolated — they can't see each other's work.
+**Tiers** increase in complexity from basic CRUD to full-stack real-time applications. Each tier runs as a **cohort** of 3 independent agents working in parallel on identical assignments with isolated Harper instances.
 
-## What It Finds
+**Expert iterations** test documentation fixes. When a tier produces failures, targeted hints are added to an expert knowledge base and the tier is re-run. The delta between iteration 0 (no hints) and iteration 1 (with hints) quantifies the value of the documentation improvement.
 
-When a fresh agent struggles, the root cause is one of:
+## Tier Progression
 
-| Category | Example | Action |
-|---|---|---|
-| **Doc gap** | Agent writes SQL because REST isn't shown early | Doc patch |
-| **Bug** | Agent follows docs, gets 500 error | Bug report with repro |
-| **DX bug** | Error says "invalid config" but real issue is missing dep | DX ticket |
-| **API friction** | 5/5 agents try batch insert, doesn't exist | API proposal with data |
-| **Feature gap** | Agent tries caching, not in v5 open source | Feature request |
-| **Security** | Default config exposes ops API on all interfaces | Immediate fix |
+| Tier | Focus | Complexity | Status |
+|------|-------|------------|--------|
+| 1 | CRUD & Schema | Basic tables, REST queries, FIQL search | ✅ Graduated (7/7) |
+| 2 | Relationships | @relationship directives, nested queries | ✅ Graduated (3/3) |
+| 3 | Custom Resources | Resource classes, validation, computed endpoints | ✅ Graduated (3/3) |
+| 4 | Real-Time | MQTT pub/sub, WebSocket, subscribe/publish | ✅ Graduated (3/3) |
+| 5 | Caching & Performance | ETags, conditional requests, cache invalidation | ✅ Graduated (2/3 → 3/3 with hint) |
+| 6 | Capstone: Event Ticketing | Full system architecture, concurrency, state machines | ✅ Complete (2/2*) |
+| 6b | Multi-Tenant SaaS | Tenant isolation, RBAC, scoped real-time | 📋 Designed |
+| 6c | IoT Sensor Platform | MQTT ingest, time-series, threshold alerting | 📋 Designed |
 
-## Prerequisites
+*1 worker lost to infrastructure bug
 
-- [Gas Town](https://github.com/steveyegge/gastown) (`gt`) — multi-agent workspace manager
-- [Beads](https://github.com/steveyegge/beads) (`bd`) — persistent state tracking for coding agents
-- Docker / Docker Compose
-- Claude Code (or other agent runtime)
+## Findings
 
-## Quick Start
+Findings reports are generated per run day in `findings/`. Each finding is classified by type and severity, with hit rates and actionable recommendations.
+
+## Repository Structure
+
+```
+├── assignments/              # Tier assignment documents
+│   ├── tier-1-bookmark-manager.md
+│   ├── tier-2-recipe-book.md
+│   ├── tier-3-task-tracker.md
+│   ├── tier-4-notification-hub.md
+│   ├── tier-5-product-catalog.md
+│   ├── tier-6-event-ticketing.md
+│   ├── tier-6b-multi-tenant-saas.md
+│   └── tier-6c-iot-sensor-platform.md
+├── docker/
+│   ├── docker-compose.worker.yml   # Per-worker Harper + workspace stack
+│   ├── lab-runner.sh               # Spawns isolated worker environments
+│   └── lab-teardown.sh             # Archives artifacts and tears down
+├── expert-knowledge/
+│   ├── iteration-0/               # No hints (baseline)
+│   ├── iteration-1/               # getContext() hint
+│   ├── iteration-2/               # + MQTT pattern, concurrency warning
+│   └── current -> iteration-2     # Active iteration symlink
+├── findings/                       # Aggregated findings reports
+├── reviews/                        # Per-cohort review documents
+└── .workers/                       # Per-worker component directories (gitignored)
+```
+
+## Running a Cohort
+
+### Prerequisites
+
+- [Gas Town](https://github.com/steveyegge/gastown) installed and configured
+- Docker (Docker Desktop or Colima)
+- Harper v5 Docker image built locally as `harperdb:v5-local`
+
+### Build the Harper Image
 
 ```bash
-# In your Gas Town workspace
-gt rig add dx-lab <this-repo-url>
-cd dx-lab
+git clone https://github.com/harperfast/harper.git ~/src/harper
+cd ~/src/harper && npm install && npm run build
+docker build -t harperdb:v5-local .
+```
 
-# Initialize beads
-bd init
+### Run a Single Worker
 
-# Set up Docker credentials
-cp docker/.env.example docker/.env
-# Edit docker/.env if you want non-default credentials
+```bash
+./docker/lab-runner.sh --tier 1 --harper-image harperdb:v5-local --worker-id 1
+```
 
-# Set up expert knowledge symlink
-cd expert-knowledge && ln -sf iteration-0 current && cd ..
+### Run a Cohort via Gas Town
 
-# Start the Mayor
+Attach to the Mayor and instruct it to run a cohort:
+
+```bash
 gt mayor attach
-
-# Tell it what to do
-> "Run a pilot Tier 1 experiment against Harper 5.0.0-alpha.3"
 ```
 
-## Project Structure
-
 ```
-harper-dx-lab/
-├── CLAUDE.md                    # Mayor = Lab Director instructions
-├── AGENTS.md                    # Agent roles (Expert, Fresh SWE)
-├── .beads/
-│   ├── config.yaml              # Custom bead types
-│   └── formulas/                # Tier protocols as Gas Town formulas
-│       ├── tier-1-run.formula.toml
-│       ├── cohort.formula.toml
-│       └── regression.formula.toml
-├── assignments/                 # Tier assignment files (what SWEs receive)
-│   └── tier-1-bookmark-manager.md
-├── docker/                      # Per-worker Docker isolation
-│   ├── docker-compose.worker.yml
-│   ├── lab-runner.sh
-│   └── .env.example
-├── expert-knowledge/            # Versioned expert knowledge (on a Hook)
-│   ├── current -> iteration-N/
-│   └── iteration-0/
-│       ├── skills/              # SKILL.md files for Claude Code
-│       ├── references/          # Harper doc snapshots, examples
-│       ├── pitfalls.md          # Known wrong turns and corrections
-│       └── memory.md            # Persistent expert rules
-├── design/                      # Design docs (reference, not operational)
-└── reviews/                     # Human review packages
+Run a 3-worker Tier 1 cohort against harperdb:v5-local.
+
+For each worker (1, 2, 3):
+1. Run: ./docker/lab-runner.sh --tier 1 --harper-image harperdb:v5-local --worker-id <N> --expert-iteration 0
+2. Sling the assignment to a polecat
+3. In the sling args, include: "Verify ALL pass criteria before running 'gt done'."
+4. Track all 3 as a convoy
+
+After all 3 complete, generate a review at reviews/tier1-cohort-<date>.md.
 ```
 
-## Tiers
+## Expert Iteration Loop
 
-| Tier | Challenge | Tests | Status |
-|---|---|---|---|
-| 1 | CRUD app (bookmark manager) | Schema, REST, @export, basic queries | Assignment ready |
-| 2 | Relationships (recipe book) | @relationship, nested queries, indexes | Design only |
-| 3 | Custom resources (REST API) | Resource classes, middleware, auth | Design only |
-| 4 | Real-time (chat/dashboard) | MQTT, subscriptions, WebSocket | Design only |
-| 5 | Advanced (vector search) | Embeddings, hybrid queries, caching | Design only |
-| 6 | Full application | All of the above, production patterns | Design only |
+1. Run tier at iteration 0 (no hints) → observe failures
+2. Diagnose root cause from review
+3. Write targeted hints in `expert-knowledge/iteration-N/pitfalls.md`
+4. Update symlink: `ln -sf iteration-N expert-knowledge/current`
+5. Re-run tier at iteration N → measure improvement
+6. Repeat until pass rate is acceptable
 
-## State
+## Finding Classifications
 
-All lab state lives in [Beads](https://github.com/steveyegge/beads). No external database.
+| Type | Meaning | Example |
+|------|---------|---------|
+| `platform_limitation` | Can't be solved in userland | No atomic conditional writes |
+| `dx_gap` | Missing feature or unclear default | config.yaml rest:true |
+| `doc_gap` | Feature exists but docs don't surface it | this.getContext() |
+| `doc_bug` | Broken links or incorrect info | 404s on /docs/developers/* |
+| `api_behavior` | Unexpected behavior vs conventions | PATCH replaces vs merges |
+| `api_design` | API surface friction | target param inconsistency |
+| `infra_bug` | Lab infrastructure issue | Worktree/mount misalignment |
 
-```bash
-bd list --type experiment          # All experiments
-bd list --type observation         # All observations
-bd list --type issue               # All issues found
-bd list --type tier-status         # Tier health
-gt convoy list                     # Active cohorts
-```
-
-## Design Docs
-
-Detailed design documentation is in `design/`. Start with:
-- [gas-town-integration.md](design/gas-town-integration.md) — Architecture ([Gas Town](https://github.com/steveyegge/gastown) + [Beads](https://github.com/steveyegge/beads) integration)
-- [living-platform.md](design/living-platform.md) — Evolving Harper, triage
-- [agents.md](design/agents.md) — Agent interaction model
-
-## License
-
-MIT
