@@ -23,6 +23,11 @@ Assignment → AI Agent → Harper Instance → Review
 
 **Expert iterations** test documentation fixes. When a tier produces failures, targeted hints are added to an expert knowledge base and the tier is re-run. The delta between iteration 0 (no hints) and iteration 1 (with hints) quantifies the value of the documentation improvement.
 
+> **⚠️ Security Warning:** This lab setup uses insecure defaults (`admin` / `password`) 
+> intended strictly for local Docker isolation. Never deploy this configuration 
+> to a public network. If you change these credentials in `.env`, be sure to
+> pass them to the agents and test scripts via environment variables.
+
 ## Tier Progression
 
 | Tier | Focus | Complexity | Status |

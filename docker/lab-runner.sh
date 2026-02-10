@@ -106,6 +106,13 @@ fi
 
 # Start the stack
 echo "Starting Docker stack..."
+
+# Usage of .env file from docker directory if it exists
+ENV_FILE_OPT=""
+if [[ -f "${SCRIPT_DIR}/.env" ]]; then
+    ENV_FILE_OPT="--env-file ${SCRIPT_DIR}/.env"
+fi
+
 HARPER_IMAGE="${HARPER_IMAGE}" \
 HARPER_REST_PORT="${REST_PORT}" \
 HARPER_OPS_PORT="${OPS_PORT}" \
@@ -114,6 +121,7 @@ COMPONENT_DIR="${COMPONENT_DIR}" \
 ASSIGNMENT_FILE="${ASSIGNMENT_FILE}" \
 docker compose \
     -f "${SCRIPT_DIR}/docker-compose.worker.yml" \
+    ${ENV_FILE_OPT} \
     -p "${COMPOSE_PROJECT}" \
     up -d
 
