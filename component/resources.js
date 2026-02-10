@@ -1,208 +1,187 @@
-// Product Catalog with Caching, ETags, Sparse Fieldsets, View Tracking
+import crypto from 'crypto';
 
-const CARD_FIELDS = ['id', 'name', 'price', 'imageUrl', 'categoryId', 'featured'];
+// Fields used for ETag computation — excludes viewCount and timestamps
+// so view tracking doesn't invalidate the cache
+function extractContentFields(product) {
+	return {
+		id: product.id,
+		name: product.name,
+		description: product.description,
+		price: product.price,
+		sku: product.sku,
+		imageUrl: product.imageUrl,
+		featured: product.featured,
+		categoryId: product.categoryId,
+	};
+}
 
-function cardView(record) {
+function computeETag(data) {
+	let content;
+	if (Array.isArray(data)) {
+		content = data.map(extractContentFields);
+	} else {
+		content = extractContentFields(data);
+	}
+	const hash = crypto.createHash('md5').update(JSON.stringify(content)).digest('hex');
+	return '"' + hash + '"';
+}
+
+const CARD_FIELDS = ['id', 'name', 'price', 'imageUrl', 'featured', 'categoryId'];
+
+function toCardView(product) {
 	const card = {};
 	for (const field of CARD_FIELDS) {
-		if (record[field] !== undefined) card[field] = record[field];
+		if (product[field] !== undefined) card[field] = product[field];
 	}
 	return card;
-}
-
-function generateETag(record) {
-	return `"${record.updatedAt || record.createdAt || Date.now()}"`;
-}
-
-function httpError(message, statusCode) {
-	const error = new Error(message);
-	error.statusCode = statusCode;
-	return error;
-}
-
-export class Category extends tables.Category {
-	static loadAsInstance = false;
-
-	async post(target, data) {
-		if (!data.name || (typeof data.name === 'string' && data.name.trim() === '')) {
-			throw httpError('name is required', 400);
-		}
-		return super.post(target, data);
-	}
 }
 
 export class Product extends tables.Product {
 	static loadAsInstance = false;
 
 	async get(target) {
-		// Handle custom query-based endpoints
-		const trending = target.get('trending');
-		const relatedTo = target.get('relatedTo');
-		const view = target.get('view');
+		const pathname = target.pathname || '';
+		const parts = pathname.split('/').filter(Boolean);
+		const lastPart = parts[parts.length - 1];
 
-		// GET /Product/?trending=true&limit=10
-		if (trending === 'true' || trending === '1') {
+		// GET /Product/trending
+		if (target.id === 'trending' || lastPart === 'trending') {
 			return this.getTrending(target);
 		}
 
-		// GET /Product/?relatedTo=<productId>&limit=10
-		if (relatedTo) {
-			return this.getRelated(relatedTo, target);
+		// GET /Product/{id}/related
+		if (parts.length >= 2 && lastPart === 'related') {
+			const productId = parts[parts.length - 2];
+			return this.getRelated(productId);
 		}
 
-		// Determine if this is a single product or collection request
-		// target.id is set when a specific resource ID is in the path
-		if (target.id) {
-			return this.getSingleProduct(target, view);
+		// Extract custom query params (Harper treats unknown params as filters)
+		const view = target.get('view');
+
+		// Card view for collections — bypass super.get() to avoid param conflict
+		if (view === 'card' && !target.id) {
+			const products = [];
+			for await (const p of tables.Product.search({
+				conditions: [{ attribute: 'viewCount', comparator: 'greater_than_equal', value: 0 }],
+			})) {
+				products.push(toCardView(p));
+			}
+			return products;
 		}
 
-		// Collection — check for featured filter
-		const featured = target.get('featured');
-		if (featured === 'true') {
-			return this.getFeatured(target);
-		}
+		// Remove custom params before passing to super.get()
+		if (target.has('view')) target.delete('view');
 
-		return super.get(target);
-	}
-
-	async getSingleProduct(target, view) {
+		// Standard GET with ETag and sparse fieldset support
+		const result = await super.get(target);
 		const context = this.getContext();
-		const ifNoneMatch = context.headers?.get('if-none-match');
 
-		const record = await super.get(target);
-		if (!record) return record;
+		// Compute ETag from content fields (excludes viewCount/timestamps)
+		const etag = computeETag(result);
 
-		// Compute ETag from the record's update timestamp
-		const etag = generateETag(record);
-
-		// Conditional request: return 304 if ETag matches
+		// Conditional request: If-None-Match
+		const ifNoneMatch = context.headers.get('if-none-match');
 		if (ifNoneMatch && ifNoneMatch === etag) {
-			return { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'max-age=60, must-revalidate' } };
+			return { status: 304, headers: { 'ETag': etag } };
 		}
 
-		// Track view asynchronously (fire and forget)
-		this.trackView(record.id).catch(() => {});
+		// Set ETag on response
+		context.responseHeaders.set('ETag', etag);
 
-		// Sparse fieldsets
-		let data;
+		// Track view for single product GETs
+		// Awaited to ensure it runs within the request context
+		// (writes require context; the increment is fast so minimal latency)
+		if (!Array.isArray(result) && result && result.id) {
+			await this.trackView(result.id);
+		}
+
+		// Sparse fieldsets for single product: ?view=card
 		if (view === 'card') {
-			data = cardView(record);
-		} else if (view === 'full') {
-			// Full view includes related products
-			const related = await this.findRelated(record.categoryId, record.id);
-			data = { ...record, relatedProducts: related };
-		} else {
-			data = record;
+			return toCardView(result);
 		}
 
-		return {
-			status: 200,
-			headers: {
-				'ETag': etag,
-				'Cache-Control': 'max-age=60, must-revalidate',
-			},
-			data,
-		};
+		return result;
 	}
 
 	async trackView(productId) {
 		try {
-			const existing = await tables.ProductView.get(productId);
-			if (existing) {
-				await tables.ProductView.patch(productId, {
-					viewCount: (existing.viewCount || 0) + 1,
-					lastViewedAt: Date.now(),
-				});
-			} else {
-				await tables.ProductView.put({
-					id: productId,
-					productId: productId,
-					viewCount: 1,
-					lastViewedAt: Date.now(),
-				});
+			// Record view in ProductView table
+			await tables.ProductView.put({ id: crypto.randomUUID(), productId });
+			// Increment viewCount on product
+			const product = await tables.Product.get(productId);
+			if (product) {
+				const updated = {
+					id: product.id,
+					name: product.name,
+					description: product.description,
+					price: product.price,
+					sku: product.sku,
+					imageUrl: product.imageUrl,
+					featured: product.featured,
+					categoryId: product.categoryId,
+					viewCount: (product.viewCount || 0) + 1,
+				};
+				await tables.Product.put(updated);
 			}
 		} catch (e) {
-			// Don't let view tracking errors affect the read path
+			// Silently fail — view tracking must never break reads
 		}
 	}
 
 	async getTrending(target) {
 		const limit = parseInt(target.get('limit')) || 10;
-		const viewEntries = [];
-		for await (const view of tables.ProductView.search({
-			sort: { attribute: 'viewCount', descending: true },
-			limit,
+		const products = [];
+		for await (const p of tables.Product.search({
+			conditions: [{ attribute: 'viewCount', comparator: 'greater_than_equal', value: 0 }],
 		})) {
-			viewEntries.push({ productId: view.productId, viewCount: view.viewCount });
+			products.push(p);
 		}
-		const results = [];
-		for (const v of viewEntries) {
-			const product = await tables.Product.get(v.productId);
-			if (product) {
-				results.push({
-					id: product.id,
-					name: product.name,
-					description: product.description,
-					price: product.price,
-					imageUrl: product.imageUrl,
-					featured: product.featured,
-					categoryId: product.categoryId,
-					tags: product.tags,
-					viewCount: v.viewCount,
-				});
-			}
-		}
-		return results;
+		products.sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0));
+		return products.slice(0, limit);
 	}
 
-	async getRelated(productId, target) {
+	async getRelated(productId) {
 		const product = await tables.Product.get(productId);
 		if (!product) {
-			throw httpError('Product not found', 404);
+			const error = new Error(`Product ${productId} not found`);
+			error.statusCode = 404;
+			throw error;
 		}
-		const limit = parseInt(target.get('limit')) || 10;
-		return this.findRelated(product.categoryId, productId, limit);
-	}
-
-	async findRelated(categoryId, excludeId, limit) {
-		const results = [];
+		if (!product.categoryId) {
+			return [];
+		}
+		const related = [];
 		for await (const p of tables.Product.search({
-			conditions: [{ attribute: 'categoryId', value: categoryId }],
-			limit: (limit || 10) + 1,
+			conditions: [{ attribute: 'categoryId', value: product.categoryId }],
 		})) {
-			if (p.id !== excludeId) {
-				results.push(p);
+			if (p.id !== productId) {
+				related.push(p);
 			}
 		}
-		return results.slice(0, limit || 10);
-	}
-
-	async getFeatured(target) {
-		const limit = parseInt(target.get('limit')) || 20;
-		const results = [];
-		for await (const p of tables.Product.search({
-			conditions: [{ attribute: 'featured', value: true }],
-			limit,
-		})) {
-			results.push(p);
-		}
-		return results;
+		return related.slice(0, 10);
 	}
 
 	async post(target, data) {
 		if (!data.name || (typeof data.name === 'string' && data.name.trim() === '')) {
-			throw httpError('name is required', 400);
+			const error = new Error('name is required');
+			error.statusCode = 400;
+			throw error;
 		}
-		if (!data.categoryId) {
-			throw httpError('categoryId is required', 400);
+		if (data.price === undefined || data.price === null) {
+			const error = new Error('price is required');
+			error.statusCode = 400;
+			throw error;
 		}
-		const category = await tables.Category.get(data.categoryId);
-		if (!category) {
-			throw httpError(`Category ${data.categoryId} not found`, 404);
+		if (data.categoryId) {
+			const category = await tables.Category.get(data.categoryId);
+			if (!category) {
+				const error = new Error(`Category ${data.categoryId} not found`);
+				error.statusCode = 404;
+				throw error;
+			}
 		}
-		if (data.featured === undefined) {
-			data.featured = false;
-		}
+		if (data.viewCount === undefined) data.viewCount = 0;
+		if (data.featured === undefined) data.featured = false;
 		return super.post(target, data);
 	}
 
@@ -212,5 +191,18 @@ export class Product extends tables.Product {
 
 	async patch(target, data) {
 		return super.patch(target, data);
+	}
+}
+
+export class Category extends tables.Category {
+	static loadAsInstance = false;
+
+	async post(target, data) {
+		if (!data.name || (typeof data.name === 'string' && data.name.trim() === '')) {
+			const error = new Error('name is required');
+			error.statusCode = 400;
+			throw error;
+		}
+		return super.post(target, data);
 	}
 }
