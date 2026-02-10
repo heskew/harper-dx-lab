@@ -3,8 +3,8 @@ type Project @table {
   name: String
   description: String
   status: String
-  createdAt: Long @createdTime
   tasks: [Task] @relationship(to: projectId)
+  createdAt: Long @createdTime
 }
 
 type Task @table {
