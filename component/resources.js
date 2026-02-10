@@ -1,146 +1,216 @@
-// Card view fields (minimal payload for mobile/listing)
-const CARD_FIELDS = ['id', 'name', 'price', 'imageUrl', 'featured', 'categoryId'];
+// Product Catalog with Caching, ETags, Sparse Fieldsets, View Tracking
 
-// All product fields for converting proxy objects to plain objects
-const ALL_FIELDS = ['id', 'name', 'description', 'price', 'sku', 'imageUrl', 'featured', 'categoryId', 'tags', 'createdAt', 'updatedAt'];
+const CARD_FIELDS = ['id', 'name', 'price', 'imageUrl', 'categoryId', 'featured'];
 
-function pickFields(record, fields) {
-	if (!record) return record;
-	const result = {};
-	for (const f of fields) {
-		if (record[f] !== undefined) result[f] = record[f];
+function cardView(record) {
+	const card = {};
+	for (const field of CARD_FIELDS) {
+		if (record[field] !== undefined) card[field] = record[field];
 	}
-	return result;
+	return card;
 }
 
-function toPlain(record) {
-	return pickFields(record, ALL_FIELDS);
+function generateETag(record) {
+	return `"${record.updatedAt || record.createdAt || Date.now()}"`;
+}
+
+function httpError(message, statusCode) {
+	const error = new Error(message);
+	error.statusCode = statusCode;
+	return error;
+}
+
+export class Category extends tables.Category {
+	static loadAsInstance = false;
+
+	async post(target, data) {
+		if (!data.name || (typeof data.name === 'string' && data.name.trim() === '')) {
+			throw httpError('name is required', 400);
+		}
+		return super.post(target, data);
+	}
 }
 
 export class Product extends tables.Product {
 	static loadAsInstance = false;
 
 	async get(target) {
-		const record = await super.get(target);
+		// Handle custom query-based endpoints
+		const trending = target.get('trending');
+		const relatedTo = target.get('relatedTo');
+		const view = target.get('view');
 
-		// For single record lookups, check for ?view=card
-		if (record && !record[Symbol.asyncIterator]) {
-			const context = this.getContext();
-			const url = context?.url || '';
-			if (url.includes('view=card')) {
-				return pickFields(record, CARD_FIELDS);
-			}
+		// GET /Product/?trending=true&limit=10
+		if (trending === 'true' || trending === '1') {
+			return this.getTrending(target);
 		}
 
-		return record;
+		// GET /Product/?relatedTo=<productId>&limit=10
+		if (relatedTo) {
+			return this.getRelated(relatedTo, target);
+		}
+
+		// Determine if this is a single product or collection request
+		// target.id is set when a specific resource ID is in the path
+		if (target.id) {
+			return this.getSingleProduct(target, view);
+		}
+
+		// Collection — check for featured filter
+		const featured = target.get('featured');
+		if (featured === 'true') {
+			return this.getFeatured(target);
+		}
+
+		return super.get(target);
 	}
-}
 
-// Card view of products — GET /ProductCard/ for listing, GET /ProductCard/<id> for single
-export class ProductCard extends Resource {
-	static loadAsInstance = false;
+	async getSingleProduct(target, view) {
+		const context = this.getContext();
+		const ifNoneMatch = context.headers?.get('if-none-match');
 
-	async get(target) {
-		if (target && target.id) {
-			const product = await tables.Product.get(target.id);
-			if (!product) {
-				const error = new Error(`Product ${target.id} not found`);
-				error.statusCode = 404;
-				throw error;
-			}
-			return pickFields(product, CARD_FIELDS);
+		const record = await super.get(target);
+		if (!record) return record;
+
+		// Compute ETag from the record's update timestamp
+		const etag = generateETag(record);
+
+		// Conditional request: return 304 if ETag matches
+		if (ifNoneMatch && ifNoneMatch === etag) {
+			return { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'max-age=60, must-revalidate' } };
 		}
 
-		// Collection: return all products as card view
-		const allProducts = tables.Product.search();
+		// Track view asynchronously (fire and forget)
+		this.trackView(record.id).catch(() => {});
+
+		// Sparse fieldsets
+		let data;
+		if (view === 'card') {
+			data = cardView(record);
+		} else if (view === 'full') {
+			// Full view includes related products
+			const related = await this.findRelated(record.categoryId, record.id);
+			data = { ...record, relatedProducts: related };
+		} else {
+			data = record;
+		}
+
+		return {
+			status: 200,
+			headers: {
+				'ETag': etag,
+				'Cache-Control': 'max-age=60, must-revalidate',
+			},
+			data,
+		};
+	}
+
+	async trackView(productId) {
+		try {
+			const existing = await tables.ProductView.get(productId);
+			if (existing) {
+				await tables.ProductView.patch(productId, {
+					viewCount: (existing.viewCount || 0) + 1,
+					lastViewedAt: Date.now(),
+				});
+			} else {
+				await tables.ProductView.put({
+					id: productId,
+					productId: productId,
+					viewCount: 1,
+					lastViewedAt: Date.now(),
+				});
+			}
+		} catch (e) {
+			// Don't let view tracking errors affect the read path
+		}
+	}
+
+	async getTrending(target) {
+		const limit = parseInt(target.get('limit')) || 10;
+		const viewEntries = [];
+		for await (const view of tables.ProductView.search({
+			sort: { attribute: 'viewCount', descending: true },
+			limit,
+		})) {
+			viewEntries.push({ productId: view.productId, viewCount: view.viewCount });
+		}
 		const results = [];
-		for await (const p of allProducts) {
-			results.push(pickFields(p, CARD_FIELDS));
+		for (const v of viewEntries) {
+			const product = await tables.Product.get(v.productId);
+			if (product) {
+				results.push({
+					id: product.id,
+					name: product.name,
+					description: product.description,
+					price: product.price,
+					imageUrl: product.imageUrl,
+					featured: product.featured,
+					categoryId: product.categoryId,
+					tags: product.tags,
+					viewCount: v.viewCount,
+				});
+			}
 		}
 		return results;
 	}
-}
 
-// Track product views (fire-and-forget style — does not slow down reads)
-export class ProductView extends tables.ProductView {
-	static loadAsInstance = false;
+	async getRelated(productId, target) {
+		const product = await tables.Product.get(productId);
+		if (!product) {
+			throw httpError('Product not found', 404);
+		}
+		const limit = parseInt(target.get('limit')) || 10;
+		return this.findRelated(product.categoryId, productId, limit);
+	}
+
+	async findRelated(categoryId, excludeId, limit) {
+		const results = [];
+		for await (const p of tables.Product.search({
+			conditions: [{ attribute: 'categoryId', value: categoryId }],
+			limit: (limit || 10) + 1,
+		})) {
+			if (p.id !== excludeId) {
+				results.push(p);
+			}
+		}
+		return results.slice(0, limit || 10);
+	}
+
+	async getFeatured(target) {
+		const limit = parseInt(target.get('limit')) || 20;
+		const results = [];
+		for await (const p of tables.Product.search({
+			conditions: [{ attribute: 'featured', value: true }],
+			limit,
+		})) {
+			results.push(p);
+		}
+		return results;
+	}
 
 	async post(target, data) {
-		if (!data.productId) {
-			const error = new Error('productId is required');
-			error.statusCode = 400;
-			throw error;
+		if (!data.name || (typeof data.name === 'string' && data.name.trim() === '')) {
+			throw httpError('name is required', 400);
 		}
-		const product = await tables.Product.get(data.productId);
-		if (!product) {
-			const error = new Error(`Product ${data.productId} not found`);
-			error.statusCode = 404;
-			throw error;
+		if (!data.categoryId) {
+			throw httpError('categoryId is required', 400);
+		}
+		const category = await tables.Category.get(data.categoryId);
+		if (!category) {
+			throw httpError(`Category ${data.categoryId} not found`, 404);
+		}
+		if (data.featured === undefined) {
+			data.featured = false;
 		}
 		return super.post(target, data);
 	}
-}
 
-// Trending products endpoint — returns products sorted by view count
-export class Trending extends Resource {
-	static loadAsInstance = false;
-
-	async get() {
-		const viewCounts = {};
-		const allViews = tables.ProductView.search();
-		for await (const view of allViews) {
-			viewCounts[view.productId] = (viewCounts[view.productId] || 0) + 1;
-		}
-
-		// Sort by count descending, take top 10
-		const sorted = Object.entries(viewCounts)
-			.sort((a, b) => b[1] - a[1])
-			.slice(0, 10);
-
-		const trending = [];
-		for (const [productId, count] of sorted) {
-			const product = await tables.Product.get(productId);
-			if (product) {
-				const plain = toPlain(product);
-				plain.viewCount = count;
-				trending.push(plain);
-			}
-		}
-
-		return trending;
+	async put(target, data) {
+		return super.put(target, data);
 	}
-}
 
-// Related products endpoint — returns products in the same category
-// Usage: GET /RelatedProducts/<productId>
-export class RelatedProducts extends Resource {
-	static loadAsInstance = false;
-
-	async get(target) {
-		if (!target || !target.id) {
-			const error = new Error('Product ID is required: GET /RelatedProducts/<productId>');
-			error.statusCode = 400;
-			throw error;
-		}
-
-		const product = await tables.Product.get(target.id);
-		if (!product) {
-			const error = new Error(`Product ${target.id} not found`);
-			error.statusCode = 404;
-			throw error;
-		}
-
-		const targetCategoryId = product.categoryId;
-
-		// Iterate all products and filter by matching category
-		const allProducts = tables.Product.search();
-		const related = [];
-		for await (const p of allProducts) {
-			if (p.id !== target.id && p.categoryId === targetCategoryId) {
-				related.push(toPlain(p));
-			}
-		}
-
-		return related;
+	async patch(target, data) {
+		return super.patch(target, data);
 	}
 }

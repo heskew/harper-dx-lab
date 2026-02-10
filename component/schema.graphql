@@ -1,8 +1,8 @@
 type Category @table @export {
   id: ID @primaryKey
   name: String @indexed
-  description: String
   slug: String @indexed
+  description: String
   products: [Product] @relationship(to: categoryId)
   createdAt: Float @createdTime
   updatedAt: Float @updatedTime
@@ -13,12 +13,11 @@ type Product @table @export {
   name: String @indexed
   description: String
   price: Float
-  sku: String @indexed
   imageUrl: String
   featured: Boolean @indexed
   categoryId: ID @indexed
   category: Category @relationship(from: categoryId)
-  tags: [String] @indexed
+  tags: [String]
   createdAt: Float @createdTime
   updatedAt: Float @updatedTime
 }
@@ -26,5 +25,6 @@ type Product @table @export {
 type ProductView @table @export {
   id: ID @primaryKey
   productId: ID @indexed
-  viewedAt: Float @createdTime
+  viewCount: Int @indexed
+  lastViewedAt: Float
 }
