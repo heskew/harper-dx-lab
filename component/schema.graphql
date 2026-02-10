@@ -1,20 +1,22 @@
-type Project @table {
+type Channel @table @export {
   id: ID @primaryKey
-  name: String
+  name: String @indexed
   description: String
-  status: String
-  tasks: [Task] @relationship(to: projectId)
-  createdAt: Long @createdTime
+  createdAt: Float @createdTime
+  notifications: [Notification] @relationship(to: channelId)
 }
 
-type Task @table {
+type Notification @table @export {
   id: ID @primaryKey
   title: String
-  description: String
-  status: String
-  priority: String
-  projectId: ID @indexed
-  project: Project @relationship(from: projectId)
-  createdAt: Long @createdTime
-  updatedAt: Long @updatedTime
+  body: String
+  severity: String @indexed
+  channelId: ID @indexed
+  channel: Channel @relationship(from: channelId)
+  read: Boolean
+  createdAt: Float @createdTime
+}
+
+type Alert @table @export(name: "alerts") {
+  id: ID @primaryKey
 }
