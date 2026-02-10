@@ -73,6 +73,14 @@ fi
 COMPONENT_DIR="${PROJECT_DIR}/.workers/worker-${WORKER_ID}/components"
 mkdir -p "$COMPONENT_DIR"
 
+if [ "$(ls -A "$COMPONENT_DIR" 2>/dev/null)" ]; then
+    ARCHIVE_DIR="${PROJECT_DIR}/.workers/worker-${WORKER_ID}/archive/$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$ARCHIVE_DIR"
+    cp -r "$COMPONENT_DIR"/* "$ARCHIVE_DIR"/
+    echo "Archived previous components to $ARCHIVE_DIR"
+    rm -rf "${COMPONENT_DIR:?}"/*
+fi
+
 COMPOSE_PROJECT="dx-lab-worker-${WORKER_ID}"
 
 echo "═══════════════════════════════════════════════════════════"
