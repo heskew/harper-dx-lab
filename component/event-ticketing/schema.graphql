@@ -1,0 +1,78 @@
+type Venue @table @export {
+  id: ID @primaryKey
+  name: String @indexed
+  address: String
+  city: String @indexed
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type Section @table @export {
+  id: ID @primaryKey
+  venueId: ID @indexed
+  name: String @indexed
+  capacity: Int
+  venue: Venue @relationship(from: venueId)
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type Event @table @export {
+  id: ID @primaryKey
+  name: String @indexed
+  description: String
+  category: String @indexed
+  venueId: ID @indexed
+  date: Float @indexed
+  status: String @indexed
+  venue: Venue @relationship(from: venueId)
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type EventSection @table @export {
+  id: ID @primaryKey
+  eventId: ID @indexed
+  sectionId: ID @indexed
+  price: Float
+  event: Event @relationship(from: eventId)
+  section: Section @relationship(from: sectionId)
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type Seat @table @export {
+  id: ID @primaryKey
+  eventId: ID @indexed
+  sectionId: ID @indexed
+  row: String @indexed
+  number: Int @indexed
+  status: String @indexed
+  holdExpiry: Float @indexed
+  holderId: String @indexed
+  purchaseId: String @indexed
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type Purchase @table @export {
+  id: ID @primaryKey
+  eventId: ID @indexed
+  buyerEmail: String @indexed
+  totalPrice: Float
+  status: String @indexed
+  seatIds: [String]
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type Waitlist @table @export {
+  id: ID @primaryKey
+  eventId: ID @indexed
+  email: String @indexed
+  joinedAt: Float @indexed
+  notified: Boolean @indexed
+  notifiedAt: Float
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
