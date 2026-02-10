@@ -35,7 +35,6 @@ export class Product extends tables.Product {
 	static loadAsInstance = false;
 
 	async get(target) {
-		// Handle custom query-based endpoints
 		const trending = target.get('trending');
 		const relatedTo = target.get('relatedTo');
 		const view = target.get('view');
@@ -50,14 +49,28 @@ export class Product extends tables.Product {
 			return this.getRelated(relatedTo, target);
 		}
 
-		// Determine if this is a single product or collection request
-		// target.id is set when a specific resource ID is in the path
+		// Single product by ID
 		if (target.id) {
 			return this.getSingleProduct(target, view);
 		}
 
-		// Collection — check for featured filter
+		// Collection requests
 		const featured = target.get('featured');
+
+		// When 'view' param is set, use search() to avoid Harper treating it as a filter
+		if (view === 'card') {
+			let results;
+			if (featured === 'true') {
+				results = await this.getFeatured(target);
+			} else {
+				results = [];
+				for await (const p of tables.Product.search({ limit: 1000 })) {
+					results.push(p);
+				}
+			}
+			return results.map(cardView);
+		}
+
 		if (featured === 'true') {
 			return this.getFeatured(target);
 		}
@@ -80,19 +93,23 @@ export class Product extends tables.Product {
 			return { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'max-age=60, must-revalidate' } };
 		}
 
-		// Track view asynchronously (fire and forget)
-		this.trackView(record.id).catch(() => {});
+		// Track view (awaited to ensure count is current, errors silenced)
+		await this.trackView(record.id);
+
+		// Get current view count
+		const viewData = await tables.ProductView.get(record.id);
+		const viewCount = viewData ? (viewData.viewCount || 0) : 0;
 
 		// Sparse fieldsets
 		let data;
 		if (view === 'card') {
 			data = cardView(record);
 		} else if (view === 'full') {
-			// Full view includes related products
+			// Full view includes related products and view count
 			const related = await this.findRelated(record.categoryId, record.id);
-			data = { ...record, relatedProducts: related };
+			data = { ...record, relatedProducts: related, viewCount };
 		} else {
-			data = record;
+			data = { ...record, viewCount };
 		}
 
 		return {

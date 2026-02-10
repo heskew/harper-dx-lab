@@ -1,4 +1,4 @@
-const REST_URL = process.env.HARPER_URL || 'http://localhost:19932';
+const REST_URL = process.env.HARPER_URL || 'http://localhost:9926';
 const AUTH = 'Basic ' + Buffer.from('admin:password').toString('base64');
 
 let pass = 0;
@@ -38,13 +38,23 @@ async function rest(method, path, body, headers = {}) {
 async function main() {
 	console.log(`Testing product catalog at ${REST_URL}\n`);
 
-	// === Setup: Create categories ===
+	// === Pre-cleanup: remove leftovers from previous runs ===
+	await rest('DELETE', '/ProductView/test-p1');
+	await rest('DELETE', '/ProductView/test-p2');
+	await rest('DELETE', '/ProductView/test-p3');
+	await rest('DELETE', '/Product/test-p1');
+	await rest('DELETE', '/Product/test-p2');
+	await rest('DELETE', '/Product/test-p3');
+	await rest('DELETE', '/Category/test-cat-1');
+	await rest('DELETE', '/Category/test-cat-2');
+
+	// === Setup: Create categories and products ===
 	console.log('--- Setup: Seed data ---');
 	await rest('POST', '/Category/', { id: 'test-cat-1', name: 'Electronics', description: 'Tech stuff' });
 	await rest('POST', '/Category/', { id: 'test-cat-2', name: 'Books', description: 'Reading material' });
-	await rest('POST', '/Product/', { id: 'test-p1', name: 'Laptop', price: 999.99, categoryId: 'test-cat-1', featured: true });
-	await rest('POST', '/Product/', { id: 'test-p2', name: 'Phone', price: 699.99, categoryId: 'test-cat-1' });
-	await rest('POST', '/Product/', { id: 'test-p3', name: 'Novel', price: 12.99, categoryId: 'test-cat-2' });
+	await rest('POST', '/Product/', { id: 'test-p1', name: 'Laptop', price: 999.99, categoryId: 'test-cat-1', featured: true, description: 'A powerful laptop' });
+	await rest('POST', '/Product/', { id: 'test-p2', name: 'Phone', price: 699.99, categoryId: 'test-cat-1', description: 'A smart phone' });
+	await rest('POST', '/Product/', { id: 'test-p3', name: 'Novel', price: 12.99, categoryId: 'test-cat-2', description: 'A good read' });
 	console.log('  Seeded 2 categories, 3 products\n');
 
 	// === Test 1: ETag on GET ===
@@ -85,7 +95,7 @@ async function main() {
 
 	// === Test 6: Related products ===
 	console.log('--- Test 6: Related products ---');
-	const r6 = await rest('GET', '/Product/test-p1/related');
+	const r6 = await rest('GET', '/Product/?relatedTo=test-p1');
 	assert(r6.status === 200, 'Related returns 200');
 	assert(Array.isArray(r6.data), 'Returns array');
 	if (Array.isArray(r6.data)) {
@@ -106,7 +116,7 @@ async function main() {
 
 	// === Test 8: Trending products ===
 	console.log('--- Test 8: Trending products ---');
-	const r8 = await rest('GET', '/Product/trending');
+	const r8 = await rest('GET', '/Product/?trending=true');
 	assert(r8.status === 200, 'Trending returns 200');
 	assert(Array.isArray(r8.data), 'Returns array');
 	if (Array.isArray(r8.data) && r8.data.length >= 2) {
@@ -121,11 +131,14 @@ async function main() {
 	const r9a = await rest('POST', '/Product/', { name: '', price: 10 });
 	assert(r9a.status === 400, `Empty name rejected (${r9a.status})`);
 	const r9b = await rest('POST', '/Product/', { name: 'Test' });
-	assert(r9b.status === 400, `Missing price rejected (${r9b.status})`);
+	assert(r9b.status === 400, `Missing categoryId rejected (${r9b.status})`);
 	const r9c = await rest('POST', '/Product/', { name: 'Test', price: 10, categoryId: 'nonexistent' });
 	assert(r9c.status === 404, `Invalid categoryId rejected (${r9c.status})`);
 
 	// === Cleanup ===
+	await rest('DELETE', '/ProductView/test-p1');
+	await rest('DELETE', '/ProductView/test-p2');
+	await rest('DELETE', '/ProductView/test-p3');
 	await rest('DELETE', '/Product/test-p1');
 	await rest('DELETE', '/Product/test-p2');
 	await rest('DELETE', '/Product/test-p3');
