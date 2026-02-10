@@ -57,6 +57,7 @@ done
 # Compute ports (each worker gets unique ports)
 REST_PORT=$((BASE_REST_PORT + WORKER_ID * 2))
 OPS_PORT=$((BASE_OPS_PORT + WORKER_ID * 2))
+MQTT_PORT=$((11883 + WORKER_ID * 2))
 
 # Determine assignment file
 ASSIGNMENT_FILE="tier-${TIER}-bookmark-manager.md"
@@ -100,6 +101,7 @@ echo "Starting Docker stack..."
 HARPER_IMAGE="${HARPER_IMAGE}" \
 HARPER_REST_PORT="${REST_PORT}" \
 HARPER_OPS_PORT="${OPS_PORT}" \
+HARPER_MQTT_PORT="${MQTT_PORT}" \
 COMPONENT_DIR="${COMPONENT_DIR}" \
 ASSIGNMENT_FILE="${ASSIGNMENT_FILE}" \
 docker compose \
@@ -131,6 +133,7 @@ echo "  Worker ${WORKER_ID} is running"
 echo ""
 echo "  Harper REST:    http://localhost:${REST_PORT}"
 echo "  Harper Ops:     http://localhost:${OPS_PORT}"
+echo "  Harper MQTT:     http://localhost:${MQTT_PORT}"
 echo "  Auth:           admin / password"
 echo "  Components:     ${COMPONENT_DIR}"
 echo "  Assignment:     ${ASSIGNMENT_FILE}"

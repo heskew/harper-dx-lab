@@ -15,6 +15,7 @@ services:
     ports:
       - "${HARPER_REST_PORT:-9926}:9926"
       - "${HARPER_OPS_PORT:-9925}:9925"
+      - "${HARPER_MQTT_PORT:-1883}:1883"
     volumes:
       - harper-data:/home/harperdb/hdb
       - ${COMPONENT_DIR:-./components}:/app/components
