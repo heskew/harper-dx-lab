@@ -1,6 +1,5 @@
 // Product Catalog — Access Control & Rate Limiting
 
-// Tier field permissions
 const TIER_FIELDS = {
   bronze: ['id', 'name', 'price', 'categoryId'],
   silver: ['id', 'name', 'description', 'price', 'sku', 'imageUrl', 'featured',
@@ -15,26 +14,23 @@ const RATE_LIMITS = { bronze: 100, silver: 1000, gold: 10000 };
 // In-memory rate limit tracking: "keyId:hourWindow" -> { count }
 const rateLimitMap = new Map();
 
-// Authenticate via X-API-Key header, returns key record or null
 async function authenticate(resourceInstance) {
   const context = resourceInstance.getContext();
   const apiKey = context.headers.get('x-api-key');
   if (!apiKey) return null;
-
   const results = await tables.ApiKey.search({
     conditions: [{ attribute: 'key', value: apiKey }],
   });
-  for (const k of results) {
+  for await (const k of results) {
     if (k.active !== false) return k;
   }
   return null;
 }
 
-// Check rate limit, set headers. Returns true if allowed, false if exceeded.
-function checkRateLimit(apiKeyRecord, context) {
+function checkRateLimit(keyRecord, context) {
   const hourWindow = Math.floor(Date.now() / 3600000);
-  const rlKey = `${apiKeyRecord.id}:${hourWindow}`;
-  const limit = RATE_LIMITS[apiKeyRecord.tier] || 100;
+  const rlKey = `${keyRecord.id}:${hourWindow}`;
+  const limit = RATE_LIMITS[keyRecord.tier] || 100;
 
   let rl = rateLimitMap.get(rlKey);
   if (!rl) {
@@ -57,10 +53,8 @@ function checkRateLimit(apiKeyRecord, context) {
   return true;
 }
 
-// Auth + rate limit gate. Returns { denied, response, keyRecord, context }.
 async function gate(resourceInstance, { write = false } = {}) {
   const context = resourceInstance.getContext();
-
   const keyRecord = await authenticate(resourceInstance);
   if (!keyRecord) {
     return {
@@ -87,7 +81,6 @@ async function gate(resourceInstance, { write = false } = {}) {
   return { denied: false, keyRecord, context };
 }
 
-// Filter product fields based on tier and view mode
 function filterProduct(product, tier, view) {
   if (!product) return product;
   let allowed = TIER_FIELDS[tier] || TIER_FIELDS.bronze;
@@ -114,7 +107,10 @@ export class Product extends tables.Product {
 
     // Trending products
     if (query.id === 'trending') {
-      const views = await tables.ProductView.search({});
+      const views = [];
+      for await (const v of await tables.ProductView.search({})) {
+        views.push(v);
+      }
       const counts = {};
       for (const v of views) {
         counts[v.productId] = (counts[v.productId] || 0) + 1;
@@ -130,73 +126,72 @@ export class Product extends tables.Product {
 
     // Featured products
     if (query.id === 'featured') {
-      const products = await tables.Product.search({
+      const products = [];
+      for await (const p of await tables.Product.search({
         conditions: [{ attribute: 'featured', value: true }],
-      });
-      const out = [];
-      for (const p of products) out.push(filterProduct(p, tier, view));
-      return { data: out };
+      })) {
+        products.push(filterProduct(p, tier, view));
+      }
+      return { data: products };
     }
 
-    // Related products: /Product/{id}/related
-    if (query.id && query.id.includes('/related')) {
-      const productId = query.id.split('/')[0];
+    // Related products
+    if (query.id && String(query.id).includes('/related')) {
+      const productId = String(query.id).split('/')[0];
       const product = await tables.Product.get(productId);
       if (!product) {
         return { status: 404, headers: {}, data: { error: 'Product not found' } };
       }
-      const same = await tables.Product.search({
-        conditions: [{ attribute: 'categoryId', value: product.categoryId }],
-      });
       const related = [];
-      for (const p of same) {
+      for await (const p of await tables.Product.search({
+        conditions: [{ attribute: 'categoryId', value: product.categoryId }],
+      })) {
         if (p.id !== productId) related.push(filterProduct(p, tier, view));
       }
       return { data: related };
     }
 
-    // Single product
+    // Single product by ID
     if (query.id) {
-      const product = await super.get(query);
-      if (!product) return product;
-      // Track view (authenticated, non-rate-limited request)
-      try {
-        await tables.ProductView.post({ productId: query.id, apiKeyId: g.keyRecord.id });
-      } catch (_) { /* best effort */ }
+      const product = await tables.Product.get(query.id);
+      if (!product) return { status: 404, headers: {}, data: { error: 'Product not found' } };
+      // Track view (fire and forget via setTimeout to avoid 201 status leak)
+      setTimeout(() => {
+        tables.ProductView.post({ productId: query.id, apiKeyId: g.keyRecord.id }).catch(() => {});
+      }, 0);
       return filterProduct(product, tier, view);
     }
 
     // List all products
-    const result = await super.get(query);
-    const out = [];
-    for (const p of result) {
-      out.push(filterProduct(p, tier, view));
+    const result = [];
+    for await (const p of await tables.Product.search({})) {
+      result.push(filterProduct(p, tier, view));
     }
-    return out;
+    return result;
   }
 
-  async post(data) {
+  async post(target, data) {
     const g = await gate(this, { write: true });
     if (g.denied) return g.response;
-    return super.post(data);
+    return tables.Product.post(data);
   }
 
-  async put(data) {
+  async put(target, data) {
     const g = await gate(this, { write: true });
     if (g.denied) return g.response;
-    return super.put(data);
+    return tables.Product.put({ id: target.id, ...data });
   }
 
-  async patch(data) {
+  async patch(target, data) {
     const g = await gate(this, { write: true });
     if (g.denied) return g.response;
-    return super.patch(data);
+    return tables.Product.patch(target.id, data);
   }
 
-  async delete(query) {
+  async delete(target) {
     const g = await gate(this, { write: true });
     if (g.denied) return g.response;
-    return super.delete(query);
+    return tables.Product.delete(target.id);
   }
 }
 
@@ -207,30 +202,39 @@ export class Category extends tables.Category {
   async get(query) {
     const g = await gate(this);
     if (g.denied) return g.response;
-    return super.get(query);
+    if (query.id) {
+      const cat = await tables.Category.get(query.id);
+      if (!cat) return { status: 404, headers: {}, data: { error: 'Category not found' } };
+      return cat;
+    }
+    const result = [];
+    for await (const c of await tables.Category.search({})) {
+      result.push(c);
+    }
+    return result;
   }
 
-  async post(data) {
+  async post(target, data) {
     const g = await gate(this, { write: true });
     if (g.denied) return g.response;
-    return super.post(data);
+    return tables.Category.post(data);
   }
 
-  async put(data) {
+  async put(target, data) {
     const g = await gate(this, { write: true });
     if (g.denied) return g.response;
-    return super.put(data);
+    return tables.Category.put({ id: target.id, ...data });
   }
 
-  async patch(data) {
+  async patch(target, data) {
     const g = await gate(this, { write: true });
     if (g.denied) return g.response;
-    return super.patch(data);
+    return tables.Category.patch(target.id, data);
   }
 
-  async delete(query) {
+  async delete(target) {
     const g = await gate(this, { write: true });
     if (g.denied) return g.response;
-    return super.delete(query);
+    return tables.Category.delete(target.id);
   }
 }
