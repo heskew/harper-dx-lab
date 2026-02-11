@@ -1,0 +1,72 @@
+type Organization @table @export {
+  id: ID @primaryKey
+  name: String @indexed
+  slug: String @indexed
+  brandingLogo: String
+  brandingPrimaryColor: String
+  brandingSecondaryColor: String
+  brandingCustomDomain: String
+  plan: String
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type User @table @export {
+  id: ID @primaryKey
+  orgId: ID @indexed
+  email: String @indexed
+  name: String @indexed
+  passwordHash: String
+  role: String @indexed
+  active: Boolean @indexed
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type Project @table @export {
+  id: ID @primaryKey
+  orgId: ID @indexed
+  name: String @indexed
+  description: String
+  status: String @indexed
+  dueDate: Float
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type Task @table @export {
+  id: ID @primaryKey
+  projectId: ID @indexed
+  orgId: ID @indexed
+  title: String @indexed
+  description: String
+  status: String @indexed
+  assigneeId: ID @indexed
+  priority: String @indexed
+  dueDate: Float
+  completedAt: Float
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type Comment @table @export {
+  id: ID @primaryKey
+  taskId: ID @indexed
+  orgId: ID @indexed
+  authorId: ID @indexed
+  parentId: ID @indexed
+  body: String
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type OrgDashboard @table @export {
+  id: ID @primaryKey
+  orgId: ID @indexed
+  tasksCompletedThisWeek: Int
+  userActivity: String
+  projectHealth: String
+  lastComputedAt: Float
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
