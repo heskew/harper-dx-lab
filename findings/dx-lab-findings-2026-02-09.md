@@ -21,6 +21,7 @@ or platform limitations.
 **Tier:** 6 (Event Ticketing Capstone)
 **Hit Rate:** 2/2 reviewable workers
 **Classification:** platform_limitation
+**Status:** Known issue, ticketed as [CORE-2081](https://harperdb.atlassian.net/browse/CORE-2081)
 
 Neither worker could implement safe concurrent seat checkout. Both used
 read-check-write patterns that are vulnerable to TOCTOU race conditions:
@@ -32,8 +33,8 @@ if (seat.status === 'available') {
 }
 ```
 
-Harper Resource classes do not support:
-- Transactions
+Harper has ACID transactions (via the `transaction()` global), but they
+are non-locking and use last-write-wins semantics. Harper does not support:
 - Row-level locks
 - Compare-and-swap / optimistic locking with version checks
 - Conditional writes (write-if-unchanged)
@@ -46,6 +47,9 @@ This is a platform limitation, not a documentation issue.
 `tables.X.put(record, { ifVersion: previousVersion })` that rejects
 writes if the record has changed since it was read.
 
+**Note:** The DX Lab independently discovered this as a platform gap —
+validation that the lab surfaces real issues the team is already tracking.
+
 ---
 
 ### HIGH: `this.getContext()` not discoverable (Doc Gap)
@@ -53,27 +57,38 @@ writes if the record has changed since it was read.
 **Tier:** 5 (Product Catalog with Caching)
 **Hit Rate:** 1/3 workers failed to discover it (iteration 0)
 **Classification:** doc_gap
-**Status:** CONFIRMED FIXED with expert hint (iteration 1: 3/3 PASS, 35% faster)
+**Status:** CONFIRMED FIXED with expert hint (iteration 1: 3/3 PASS, 35% faster).
+`getContext()` will become a top-level function in v5.0, which should
+resolve discoverability.
 
 Accessing HTTP request/response headers from within a Resource class
 requires `this.getContext()`. One worker (furiosa) built a complete
-product catalog in 10 minutes but completely skipped ETags/caching
-because it couldn't discover how to access HTTP headers.
+product catalog in 10 minutes but completely skipped custom header
+access because it couldn't discover how to call `this.getContext()`.
 
 The other two workers found it but took 21 minutes (vs 12 minutes with
 the expert hint in iteration 1).
+
+**Important context on ETags:** Harper handles ETags and 304 responses
+automatically using record timestamps. The Tier 5 assignment asked
+agents to implement caching, and agents that skipped manual ETag logic
+may have been correct — Harper's built-in caching already handles this
+at the platform level. The `getContext()` discoverability gap is still
+valid for any use case requiring custom header access, but the specific
+ETag/304 scenario may not require it.
 
 **Evidence:**
 - Iteration 0: 2/3 PASS (67%), avg 17 min
 - Iteration 1 (with 30-line hint): 3/3 PASS (100%), avg 11 min (-35%)
 
-**Recommendation:** Add a prominent example in Resource class docs:
+**Recommendation:** The v5.0 change to a top-level `getContext()` function
+should help. In the meantime, adding a prominent example in Resource class
+docs would bridge the gap:
 ```js
 async get(target) {
-  const context = this.getContext();
-  const ifNoneMatch = context.headers.get('if-none-match');
-  // ... ETag logic
-  return { status: 304, headers: { 'ETag': etag } };
+  const context = getContext(); // top-level in v5.0
+  const customHeader = context.headers.get('x-custom-header');
+  // ...
 }
 ```
 
@@ -167,15 +182,15 @@ Broken documentation links:
 
 ---
 
-### LOW: PATCH replaces vs merges (API Behavior)
+### ~~LOW: PATCH replaces vs merges (API Behavior)~~ RETRACTED
 
-**Tier:** 1
-**Hit Rate:** 1/6 workers noted this
-**Classification:** api_behavior
+**Original claim:** Harper's PATCH operation replaces the entire record
+rather than merging only the provided fields.
 
-Harper's PATCH operation replaces the entire record rather than merging
-only the provided fields. This differs from standard REST PATCH semantics
-(RFC 7396 JSON Merge Patch).
+**Correction:** This finding is **incorrect**. Harper's PATCH merges
+fields as expected per standard REST semantics. The agent that reported
+this behavior likely confused PUT and PATCH, or had a flawed test. This
+has been removed from actionable findings.
 
 ---
 
@@ -192,7 +207,7 @@ polecat likely wrote to its git worktree instead of the Docker-mounted
 the files were lost.
 
 **Fix:** Ensure sling args include the explicit component path, and add
-an archive step before teardown to preserve artifacts.
+an archive step before teardown to preserve artifacts. (Implemented.)
 
 ---
 
@@ -209,6 +224,16 @@ an archive step before teardown to preserve artifacts.
 | 6 | Capstone | 2/2* (100%) | ~13 min | Concurrent checkout unsolvable, MQTT pattern regression |
 
 *1 worker lost to infrastructure bug, not counted
+
+### Tier 5 Reassessment
+
+Harper handles ETags and 304 responses automatically using record
+timestamps. The Tier 5 assignment asked agents to implement caching,
+and the agent that "failed" by skipping manual ETag logic may have
+been more correct than those who built custom caching on top of
+Harper's built-in behavior. The `getContext()` discoverability gap
+remains valid for custom header access use cases, but the Tier 5
+pass/fail criteria should be revisited for future runs.
 
 ### Tier 6 Detail: Capstone Complexity
 
@@ -235,9 +260,18 @@ access to search documentation. No human intervention during runs.
 Expert iterations inject targeted hints (pitfalls docs) and re-run to
 measure improvement, quantifying the value of documentation additions.
 
+## Expert Review
+
+This report was reviewed by a Harper team member. Corrections applied:
+- Atomic conditional writes: confirmed as known issue (CORE-2081)
+- `getContext()`: will become top-level function in v5.0
+- ETags/304: Harper handles these automatically via record timestamps
+- PATCH behavior: original finding was incorrect — Harper PATCH merges correctly
+
 ## What's Next
 
 - Tier 6b: Multi-tenant SaaS (tenant isolation, RBAC)
 - Tier 6c: IoT Sensor Platform (MQTT ingest, time-series, alerting)
 - Expert iteration on Tier 6 findings
+- Revisit Tier 5 pass criteria given Harper's built-in ETag support
 - Distributed clustering tiers (pending multi-node support)
