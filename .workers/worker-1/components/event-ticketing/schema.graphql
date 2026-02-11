@@ -1,0 +1,81 @@
+type Venue @table @export {
+  id: ID @primaryKey
+  name: String @indexed
+  address: String
+  city: String @indexed
+  state: String @indexed
+  capacity: Int
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type Section @table @export {
+  id: ID @primaryKey
+  venueId: ID @indexed
+  venue: Venue @relationship(from: venueId)
+  name: String @indexed
+  rowCount: Int
+  seatsPerRow: Int
+  price: Float
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type Event @table @export {
+  id: ID @primaryKey
+  name: String @indexed
+  description: String
+  category: String @indexed
+  venueId: ID @indexed
+  venue: Venue @relationship(from: venueId)
+  date: Float @indexed
+  status: String @indexed
+  imageUrl: String
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type EventSeat @table @export {
+  id: ID @primaryKey
+  eventId: ID @indexed
+  sectionId: ID @indexed
+  row: Int @indexed
+  seatNumber: Int
+  status: String @indexed
+  price: Float
+  holdId: ID @indexed
+  purchaseId: ID @indexed
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type SeatHold @table @export {
+  id: ID @primaryKey
+  eventId: ID @indexed
+  userId: String @indexed
+  seatIds: [String]
+  expiresAt: Float @indexed
+  status: String @indexed
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type Purchase @table @export {
+  id: ID @primaryKey
+  eventId: ID @indexed
+  userId: String @indexed
+  seatIds: [String]
+  totalPrice: Float
+  status: String @indexed
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type WaitlistEntry @table @export {
+  id: ID @primaryKey
+  eventId: ID @indexed
+  userId: String @indexed
+  status: String @indexed
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
