@@ -1,0 +1,45 @@
+type Category @table @export {
+  id: ID @primaryKey
+  name: String @indexed
+  description: String
+  slug: String @indexed
+  products: [Product] @relationship(to: categoryId)
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type Product @table @export {
+  id: ID @primaryKey
+  name: String @indexed
+  description: String
+  price: Float
+  sku: String @indexed
+  imageUrl: String
+  featured: Boolean @indexed
+  categoryId: ID @indexed
+  category: Category @relationship(from: categoryId)
+  tags: [String] @indexed
+  supplierName: String
+  supplierContact: String
+  costPrice: Float
+  inventoryCount: Int
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type ApiKey @table @export {
+  id: ID @primaryKey
+  key: String @indexed
+  tier: String @indexed
+  partnerName: String
+  active: Boolean @indexed
+  createdAt: Float @createdTime
+  updatedAt: Float @updatedTime
+}
+
+type ProductView @table @export {
+  id: ID @primaryKey
+  productId: ID @indexed
+  apiKeyId: ID @indexed
+  viewedAt: Float @createdTime
+}
